@@ -1,6 +1,9 @@
 """
-SEO Job Scraper Bot v4.1
-========================
+Back-end Developer Job Scraper Bot v1.0
+========================================
+مخصوص: Junior Back-end Developer (Node.js / Express)
+موقعیت: فقط Remote
+
 منابع شغلی رایگان:
   • Remotive.com
   • Jobicy.com
@@ -14,7 +17,6 @@ SEO Job Scraper Bot v4.1
 قابلیت‌های AI (اختیاری):
   • Gemini — تولید Cover Letter با دکمه زیر هر آگهی
   • OpenAI (GPT) — جایگزین Gemini
-  • هر API سازگار OpenAI
 
 ذخیره‌سازی اختیاری:
   • Google Sheets (Batch append)
@@ -27,11 +29,14 @@ SEO Job Scraper Bot v4.1
   GSHEET_ID            — اختیاری
   CF_WORKER_URL        — اختیاری
   AI_PROVIDER          — اختیاری: gemini | openai | custom
-  AI_API_KEY           — اختیاری: کلید API هوش مصنوعی
-  AI_MODEL             — اختیاری: مدل (default: gemini-2.0-flash)
-  AI_BASE_URL          — اختیاری: آدرس پایه برای API سازگار OpenAI
+  AI_API_KEY           — اختیاری
+  AI_MODEL             — اختیاری (default: gemini-2.0-flash)
+  AI_BASE_URL          — اختیاری
   ADZUNA_APP_ID        — اختیاری
   ADZUNA_API_KEY       — اختیاری
+  TELEGRAPH_TOKEN      — اختیاری
+  USER_SKILLS          — اختیاری (comma separated)
+  USER_RESUME          — اختیاری
 """
 
 import html
@@ -60,16 +65,13 @@ except ImportError:
 #  LOGGING
 # ══════════════════════════════════════════════════════════════════════════════
 
-# مسیر فایل‌ها نسبت به محل اسکریپت (برای جلوگیری از باگ در CI)
 SCRIPT_DIR = Path(__file__).parent
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
@@ -92,106 +94,172 @@ GSHEET_CREDENTIALS = os.environ.get("GSHEET_CREDENTIALS", "")
 GSHEET_ID          = os.environ.get("GSHEET_ID", "")
 GSHEET_SHEET_NAME  = "Jobs"
 
-CF_WORKER_URL    = os.environ.get("CF_WORKER_URL", "")
+CF_WORKER_URL = os.environ.get("CF_WORKER_URL", "")
 
-# ── AI Config (اختیاری) ─────────────────────────────────────────────────────
-AI_PROVIDER = os.environ.get("AI_PROVIDER", "").lower()       # gemini | openai | tokenlb | custom
+# ── AI Config ────────────────────────────────────────────────────────────────
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "").lower()
 AI_API_KEY  = os.environ.get("AI_API_KEY", "")
 AI_MODEL    = os.environ.get("AI_MODEL", "gemini-2.0-flash")
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "")
 
-# TokenLB: اگه provider برابر tokenlb بود، base_url خودکار ست میشه
 if AI_PROVIDER == "tokenlb":
     AI_BASE_URL = "https://tokenlb.net/v1"
 
-# ── Telegraph (اختیاری — cache token برای جلوگیری از بن شدن) ─────────────────
 TELEGRAPH_TOKEN = os.environ.get("TELEGRAPH_TOKEN", "")
 
-# ── Adzuna (اختیاری) ────────────────────────────────────────────────────────
 ADZUNA_APP_ID  = os.environ.get("ADZUNA_APP_ID", "")
 ADZUNA_API_KEY = os.environ.get("ADZUNA_API_KEY", "")
 
-# ── مسیر فایل seen_jobs نسبت به اسکریپت ─────────────────────────────────────
 SEEN_JOBS_FILE   = SCRIPT_DIR / "seen_jobs.txt"
 MAX_SEEN_JOBS    = 3000
 MAX_JOBS_PER_RUN = 20
 MIN_FIT_SCORE    = 35
-MAX_JOB_AGE_DAYS = 7       # ۷ روز — چون لینکدین دیرتر ایندکس می‌کنه
+MAX_JOB_AGE_DAYS = 7
 
-# ── JSearch Queries ──────────────────────────────────────────────────────────
+# ── JSearch Queries — بر اساس رزومه مهدی مشتاقی ────────────────────────────
 JSEARCH_QUERIES = {
-    1: ["Junior SEO remote", "Technical SEO remote", "SEO Python remote"],
-    2: ["SEO Content Editor remote", "WordPress SEO Specialist remote"],
-    3: ["on-page SEO specialist remote", "SEO copywriter remote"],
+    1: [
+        "Node.js Express.js Backend Developer remote",
+        "Node.js REST API Developer remote",
+        "Junior Node.js Developer remote",
+    ],
+    2: [
+        "Node.js MongoDB Backend Engineer remote",
+        "Express.js API Developer remote",
+        "Junior Backend Developer JWT MongoDB remote",
+    ],
+    3: [
+        "Node.js Docker Backend Developer remote",
+        "Junior Software Engineer Node.js remote",
+    ],
 }
 
-# ── مهارت‌ها (از env یا پیش‌فرض) ─────────────────────────────────────────────
+# ── مهارت‌ها — دقیقاً از رزومه مهدی مشتاقی ──────────────────────────────────
 _DEFAULT_SKILLS = [
-    "python", "wordpress", "technical seo", "on-page seo",
-    "screaming frog", "ahrefs", "semrush", "google analytics",
-    "google search console", "content", "keyword research",
-    "html", "cms", "link building", "schema",
+    # Backend Core
+    "node.js", "nodejs", "express", "express.js",
+    "restful api", "rest api", "middleware", "middleware architecture",
+    # Database
+    "mongodb", "mongoose", "aggregation pipeline", "mongodb indexing",
+    "schema design", "virtual population", "pagination", "query optimization",
+    # Auth & Security
+    "jwt", "oauth2", "google oauth", "rbac", "role-based access control",
+    "helmet", "xss protection", "rate limiting", "mongo sanitize",
+    # DevOps & Tools
+    "docker", "docker compose", "nginx", "pm2", "linux", "ubuntu",
+    "git", "github", "postman", "swagger", "openapi",
+    # Testing
+    "jest", "supertest",
+    # Languages
+    "javascript", "typescript", "python",
 ]
-_user_skills_env = os.environ.get("USER_SKILLS", "")
-MY_SKILLS = [s.strip().lower() for s in _user_skills_env.split(",") if s.strip()] if _user_skills_env else _DEFAULT_SKILLS
 
-# ── رزومه/پروفایل کاربر (اختیاری — AI ازش استفاده می‌کنه) ────────────────────
+_user_skills_env = os.environ.get("USER_SKILLS", "")
+MY_SKILLS = (
+    [s.strip().lower() for s in _user_skills_env.split(",") if s.strip()]
+    if _user_skills_env
+    else _DEFAULT_SKILLS
+)
+
 USER_RESUME = os.environ.get("USER_RESUME", "")
 
-# ── کلمات ممنوعه ─────────────────────────────────────────────────────────────
+# ── کلمات ممنوعه — بر اساس سطح مهدی (Junior/Mid) ────────────────────────────
 BLACKLIST_KEYWORDS = [
+    # موقعیت جغرافیایی
     "us residents only", "must reside in us", "must be located in us",
-    "must be based in the us", "must be based in us",
-    "must be authorized to work in the us",
-    "senior seo", "head of seo", "director of seo", "vp of",
-    "agency", "full stack", "fullstack",
+    "must be based in the us", "must be authorized to work in the us",
+    "uk only", "eu only", "europe only",
+    # سطح بالاتر از Junior/Mid
+    "senior developer", "senior engineer", "lead developer", "lead engineer",
+    "staff engineer", "principal engineer", "tech lead",
+    "head of engineering", "vp of engineering", "director of",
+    "10+ years", "8+ years", "7+ years", "6+ years", "5+ years",
+    # تکنولوژی‌های نامرتبط
+    "react developer", "angular developer", "vue developer", "frontend only",
+    "mobile developer", "ios developer", "android developer",
+    "data scientist", "machine learning engineer", "devops only",
+    "php developer", "ruby developer", "java developer", ".net developer",
+    # دیگر
     "native english speaker only",
-    "10+ years", "8+ years", "7+ years",
+    "requires security clearance",
 ]
 
-# ── کلمات تقویت‌کننده ────────────────────────────────────────────────────────
+# ── کلمات تقویت‌کننده — بر اساس نقاط قوت رزومه مهدی ─────────────────────────
 BOOST_KEYWORDS = {
-    "technical seo": 20, "python": 18, "wordpress": 15,
-    "junior": 18, "entry level": 15, "associate": 12,
-    "seo specialist": 12, "seo editor": 12, "content editor": 10,
-    "on-page": 10, "part-time": 8, "contract": 5,
-    "remote-first": 8, "async": 5, "flexible": 4,
+    # Core Stack — بالاترین امتیاز
+    "node.js": 25,
+    "nodejs": 25,
+    "express": 22,
+    "express.js": 22,
+    # Auth & Security — تخصص اصلی
+    "jwt": 18,
+    "oauth": 16,
+    "rbac": 16,
+    "authentication": 14,
+    "authorization": 14,
+    # Database
+    "mongodb": 18,
+    "mongoose": 16,
+    "aggregation": 12,
+    # DevOps
+    "docker": 14,
+    "nginx": 12,
+    "linux": 10,
+    "pm2": 10,
+    # Testing & Docs
+    "jest": 12,
+    "swagger": 10,
+    "openapi": 10,
+    # API
+    "rest api": 15,
+    "restful api": 15,
+    "api design": 14,
+    "backend": 14,
+    "back-end": 14,
+    # سطح شغلی
+    "junior": 20,
+    "entry level": 18,
+    "entry-level": 18,
+    "associate": 15,
+    "mid-level": 12,
+    # شرایط کاری
+    "remote-first": 8,
+    "async": 5,
+    "flexible": 4,
+    "contract": 5,
 }
 
-# ── Regex patterns برای Fit Score (word boundary) ────────────────────────────
-_SKILL_PATTERNS = {skill: re.compile(r"\b" + re.escape(skill) + r"\b", re.IGNORECASE)
-                   for skill in MY_SKILLS}
-_BOOST_PATTERNS = {kw: re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE)
-                   for kw in BOOST_KEYWORDS}
-_BLACKLIST_PATTERNS = {kw: re.compile(r"\b" + re.escape(kw.lower()) + r"\b", re.IGNORECASE)
-                       for kw in BLACKLIST_KEYWORDS}
+# ── Regex patterns ────────────────────────────────────────────────────────────
+_SKILL_PATTERNS = {
+    skill: re.compile(r"\b" + re.escape(skill) + r"\b", re.IGNORECASE)
+    for skill in MY_SKILLS
+}
+_BOOST_PATTERNS = {
+    kw: re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE)
+    for kw in BOOST_KEYWORDS
+}
+_BLACKLIST_PATTERNS = {
+    kw: re.compile(r"\b" + re.escape(kw.lower()) + r"\b", re.IGNORECASE)
+    for kw in BLACKLIST_KEYWORDS
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AI COVER LETTER (اختیاری — Gemini / OpenAI / Custom)
+#  AI COVER LETTER
 # ══════════════════════════════════════════════════════════════════════════════
 
 def ai_available() -> bool:
-    """بررسی اینکه AI فعال شده یا نه"""
     return bool(AI_PROVIDER and AI_API_KEY)
 
 
 def generate_cover_letter(job: dict, matched_skills: list) -> str:
-    """
-    تولید Cover Letter با AI — فقط بر اساس matched_skills.
-    اگه AI تنظیم نشده باشه، خالی برمی‌گردونه.
-    هیچوقت باعث crash نمی‌شه.
-    """
     if not ai_available():
         return ""
 
     title   = job.get("title", "")
     company = job.get("company", "")
     desc    = (job.get("description") or "")[:1500]
-    
-    # فقط مهارت‌های تطابق‌یافته رو بده — نه همه MY_SKILLS
-    skills_str = ', '.join(matched_skills) if matched_skills else ', '.join(MY_SKILLS[:5])
+    skills_str = ", ".join(matched_skills) if matched_skills else ", ".join(MY_SKILLS[:5])
 
-    # اگه کاربر رزومه داده، اضافه کن
     resume_section = ""
     if USER_RESUME:
         resume_section = f"\nApplicant's background: {USER_RESUME[:500]}\n"
@@ -201,16 +269,25 @@ def generate_cover_letter(job: dict, matched_skills: list) -> str:
         f"Title: {title}\n"
         f"Company: {company}\n"
         f"Description: {desc}\n\n"
-        f"The applicant has these RELEVANT skills: {skills_str}\n"
+        f"About the applicant (Mahdi Moshtaghi):\n"
+        f"- Node.js / Express.js Backend Developer\n"
+        f"- Delivered 150+ RESTful API endpoints across multiple production systems\n"
+        f"- Expert in JWT/OAuth2 authentication, RBAC authorization\n"
+        f"- MongoDB optimization: indexing, aggregation pipelines, virtual population\n"
+        f"- DevOps: Docker, Docker Compose, Nginx, PM2 on Ubuntu Linux\n"
+        f"- Testing: Jest, Supertest — Documentation: Swagger/OpenAPI\n"
+        f"- Security: Helmet, XSS Protection, Mongo Sanitize, rate limiting\n"
+        f"- Bachelor of Computer Science, University of Isfahan\n"
+        f"Relevant skills for this job: {skills_str}\n"
         f"{resume_section}\n"
         f"Rules:\n"
         f"- Keep it under 250 words\n"
         f"- Be laser-targeted to the job requirements\n"
-        f"- ONLY mention skills from the provided list that match the job\n"
-        f"- If background info is provided, weave it naturally into the letter\n"
+        f"- Highlight specific achievements from the applicant's background\n"
+        f"- ONLY mention skills that match the job description\n"
         f"- Show enthusiasm but stay professional\n"
         f"- End with a call to action\n"
-        f"- Do NOT use any Markdown formatting like **bold** or *italics*. Use only plain text."
+        f"- Do NOT use any Markdown formatting. Use only plain text."
     )
 
     try:
@@ -223,48 +300,38 @@ def generate_cover_letter(job: dict, matched_skills: list) -> str:
             return ""
     except Exception as e:
         log.error(f"AI cover letter error: {e}")
-        # اطلاع‌رسانی به کاربر — فقط یکبار در هر اجرا (جلوگیری از spam)
         if not _ai_error_notified["sent"]:
             _ai_error_notified["sent"] = True
             try:
-                err_msg = (
+                send_telegram(
                     "⚠️ <b>خطا در دریافت پاسخ از هوش مصنوعی</b>\n\n"
-                    "API ارائه‌دهنده سرور در حال حاضر پاسخ نمی‌دهد.\n"
-                    "مشکل از سمت سایت ارائه‌دهنده سرور هست.\n"
-                    "لطفاً چند ساعت دیگه مجدد تلاش کنید. 🙏"
+                    "API ارائه‌دهنده پاسخ نمی‌دهد. لطفاً چند ساعت دیگر تلاش کنید."
                 )
-                send_telegram(err_msg)
             except Exception:
-                pass  # حتی اگه ارسال پیام خطا هم فیل شد، ربات crash نکنه
+                pass
         return ""
 
 
 def _call_gemini(prompt: str) -> str:
-    """Google Gemini API"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{AI_MODEL}:generateContent?key={AI_API_KEY}"
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{AI_MODEL}:generateContent?key={AI_API_KEY}"
+    )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 1024,
-        }
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024},
     }
     resp = requests.post(url, json=payload, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-
-    # استخراج متن از پاسخ Gemini
     candidates = data.get("candidates", [])
     if not candidates:
         return ""
     parts = candidates[0].get("content", {}).get("parts", [])
-    if not parts:
-        return ""
-    return parts[0].get("text", "").strip()
+    return parts[0].get("text", "").strip() if parts else ""
 
 
 def _call_openai_compatible(prompt: str) -> str:
-    """OpenAI یا هر API سازگار (مثل Together, Groq, etc.)"""
     base_url = AI_BASE_URL or "https://api.openai.com/v1"
     url = f"{base_url}/chat/completions"
     headers = {
@@ -284,20 +351,13 @@ def _call_openai_compatible(prompt: str) -> str:
     resp.raise_for_status()
     data = resp.json()
     choices = data.get("choices", [])
-    if not choices:
-        return ""
-    return choices[0].get("message", {}).get("content", "").strip()
+    return choices[0].get("message", {}).get("content", "").strip() if choices else ""
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SEEN JOBS CACHE — OrderedDict برای حفظ ترتیب ورود
+#  SEEN JOBS CACHE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_seen_jobs() -> OrderedDict:
-    """
-    بارگذاری دیتابیس آگهی‌های دیده‌شده.
-    از OrderedDict استفاده می‌کنیم تا ترتیب ورود حفظ بشه
-    و هنگام prune شدن، آگهی‌های قدیمی (نه جدید) حذف بشن.
-    """
     seen = OrderedDict()
     if SEEN_JOBS_FILE.exists():
         for line in SEEN_JOBS_FILE.read_text(encoding="utf-8").splitlines():
@@ -311,23 +371,17 @@ def load_seen_jobs() -> OrderedDict:
 
 
 def save_seen_jobs(seen: OrderedDict) -> None:
-    """
-    ذخیره دیتابیس. اگه تعداد از MAX_SEEN_JOBS بیشتر بود،
-    قدیمی‌ترین‌ها (اول لیست) حذف میشن — نه جدیدها.
-    """
     ids = list(seen.keys())
     if len(ids) > MAX_SEEN_JOBS:
-        # حذف قدیمی‌ترین‌ها (از ابتدا)
         ids = ids[-MAX_SEEN_JOBS:]
     SEEN_JOBS_FILE.write_text("\n".join(ids), encoding="utf-8")
     log.info(f"Saved {len(ids)} IDs to cache")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FIT SCORE — با Regex word boundary (جلوگیری از false positive)
+#  FIT SCORE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def calculate_fit_score(job: dict) -> tuple:
-    """برمی‌گردونه: (score: int 0-100, matched_skills: list[str])"""
     score = 0
     matched_skills = []
 
@@ -335,45 +389,77 @@ def calculate_fit_score(job: dict) -> tuple:
     desc     = (job.get("description") or "").lower()
     combined = f"{title} {desc}"
 
-    # Boost keywords — با word boundary
+    # Boost keywords
     for kw, pts in BOOST_KEYWORDS.items():
         if _BOOST_PATTERNS[kw].search(combined):
             score += pts
 
-    # Skills — با word boundary (جلوگیری از seo in baseon)
+    # Skills — از رزومه مهدی
     for skill in MY_SKILLS:
         if _SKILL_PATTERNS[skill].search(combined):
             matched_skills.append(skill)
             score += 7
 
-    if re.search(r"\bseo\b", title):
-        score += 12
+    # عنوان‌های مرتبط
+    if re.search(r"\b(backend|back-end|back end)\b", title):
+        score += 15
+    if re.search(r"\b(node\.?js|nodejs)\b", title, re.IGNORECASE):
+        score += 20
+    if re.search(r"\b(express\.?js?)\b", title, re.IGNORECASE):
+        score += 15
+    if re.search(r"\b(developer|engineer|programmer)\b", title, re.IGNORECASE):
+        score += 8
+
+    # تخصص‌های کلیدی مهدی در توضیحات
+    if re.search(r"\b(jwt|token|authentication)\b", combined, re.IGNORECASE):
+        score += 8
+    if re.search(r"\b(rbac|role.based|authorization)\b", combined, re.IGNORECASE):
+        score += 8
+    if re.search(r"\b(mongodb|mongoose)\b", combined, re.IGNORECASE):
+        score += 8
+    if re.search(r"\b(docker|containeriz)\b", combined, re.IGNORECASE):
+        score += 6
+    if re.search(r"\b(swagger|openapi|api doc)\b", combined, re.IGNORECASE):
+        score += 5
+
     if job.get("salary"):
         score += 10
     if job.get("remote"):
         score += 8
-    if any(re.search(r"\b" + w + r"\b", title) for w in ["junior", "associate", "entry", "jr"]):
-        score += 10
+    if any(re.search(r"\b" + w + r"\b", title) for w in ["junior", "associate", "entry", "jr", "mid"]):
+        score += 15
 
-    return min(score, 100), matched_skills[:4]
+    return min(score, 100), matched_skills[:5]
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  FREE SOURCES
 # ══════════════════════════════════════════════════════════════════════════════
 
 def fetch_remotive() -> list:
-    """Remotive.com — رایگان، بدون API key"""
     endpoints = [
-        "https://remotive.com/api/remote-jobs?category=seo&limit=20",
-        "https://remotive.com/api/remote-jobs?search=technical+seo&limit=10",
-        "https://remotive.com/api/remote-jobs?search=seo+content&limit=10",
+        "https://remotive.com/api/remote-jobs?category=software-dev&limit=50",
+        "https://remotive.com/api/remote-jobs?search=node.js+backend&limit=20",
+        "https://remotive.com/api/remote-jobs?search=nodejs+developer&limit=20",
+        "https://remotive.com/api/remote-jobs?search=express+backend&limit=15",
     ]
+
+    # فیلتر آگهی‌های مرتبط
+    BACKEND_TERMS = [
+        "node", "nodejs", "node.js", "express", "backend", "back-end",
+        "back end", "javascript backend", "typescript backend",
+        "api developer", "rest api", "server side",
+    ]
+
     results = []
     for url in endpoints:
         try:
             resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             for j in resp.json().get("jobs", []):
+                title = (j.get("title") or "").lower()
+                desc  = (j.get("description") or "").lower()[:300]
+                if not any(t in title or t in desc for t in BACKEND_TERMS):
+                    continue
                 results.append({
                     "id":           f"remotive_{j.get('id', '')}",
                     "title":        j.get("title", ""),
@@ -395,26 +481,38 @@ def fetch_remotive() -> list:
 
 
 def fetch_jobicy() -> list:
-    """Jobicy.com — رایگان، بدون API key"""
     endpoints = [
-        "https://jobicy.com/api/v2/remote-jobs?tag=seo&count=20",
-        "https://jobicy.com/api/v2/remote-jobs?tag=content-marketing&count=15",
-        "https://jobicy.com/api/v2/remote-jobs?tag=wordpress&count=10",
+        "https://jobicy.com/api/v2/remote-jobs?tag=nodejs&count=20",
+        "https://jobicy.com/api/v2/remote-jobs?tag=javascript&count=20",
+        "https://jobicy.com/api/v2/remote-jobs?tag=backend&count=20",
+        "https://jobicy.com/api/v2/remote-jobs?tag=typescript&count=15",
     ]
+
+    BACKEND_TERMS = [
+        "node", "nodejs", "express", "backend", "back-end",
+        "javascript", "typescript", "api", "server",
+    ]
+
     results = []
     for url in endpoints:
         try:
             resp = requests.get(url, timeout=15)
             resp.raise_for_status()
             for j in resp.json().get("jobs", []):
+                title = (j.get("jobTitle") or "").lower()
+                desc  = (j.get("jobDescription") or "").lower()[:300]
+                if not any(t in title or t in desc for t in BACKEND_TERMS):
+                    continue
+
                 sal = ""
-                lo = j.get("annualSalaryMin")
-                hi = j.get("annualSalaryMax")
+                lo  = j.get("annualSalaryMin")
+                hi  = j.get("annualSalaryMax")
                 cur = j.get("annualSalaryCurrency", "USD")
                 if lo and hi:
                     sal = f"{cur} {int(lo):,}-{int(hi):,}/yr"
                 elif lo:
                     sal = f"{cur} {int(lo):,}+/yr"
+
                 results.append({
                     "id":           f"jobicy_{j.get('id', '')}",
                     "title":        j.get("jobTitle", ""),
@@ -436,9 +534,11 @@ def fetch_jobicy() -> list:
 
 
 def fetch_arbeitnow() -> list:
-    """Arbeitnow — رایگان، بدون API key"""
-    SEO_TERMS = ["seo", "search engine optimization", "content editor",
-                 "technical seo", "wordpress seo"]
+    BACKEND_TERMS = [
+        "node", "nodejs", "node.js", "express", "backend", "back-end",
+        "javascript developer", "typescript developer",
+        "rest api", "api developer",
+    ]
     try:
         resp = requests.get(
             "https://arbeitnow.com/api/job-board-api",
@@ -451,8 +551,8 @@ def fetch_arbeitnow() -> list:
             if not j.get("remote"):
                 continue
             title = (j.get("title") or "").lower()
-            desc = (j.get("description") or "").lower()[:300]
-            if not any(t in title or t in desc for t in SEO_TERMS):
+            desc  = (j.get("description") or "").lower()[:300]
+            if not any(t in title or t in desc for t in BACKEND_TERMS):
                 continue
             results.append({
                 "id":           f"arbeitnow_{j.get('slug', '')}",
@@ -475,36 +575,44 @@ def fetch_arbeitnow() -> list:
 
 
 def fetch_adzuna() -> list:
-    """Adzuna — رایگان با API key (اختیاری)"""
     if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
         return []
 
-    queries = ["seo", "technical seo", "seo specialist"]
+    queries = [
+        "junior node.js developer",
+        "junior backend developer nodejs",
+        "junior javascript backend",
+    ]
     results = []
 
     for q in queries:
         try:
             resp = requests.get(
-                f"https://api.adzuna.com/v1/api/jobs/us/search/1",
+                "https://api.adzuna.com/v1/api/jobs/us/search/1",
                 params={
-                    "app_id": ADZUNA_APP_ID,
-                    "app_key": ADZUNA_API_KEY,
-                    "what": q,
-                    "what_or": "remote",
-                    "max_days_old": 7,
+                    "app_id":           ADZUNA_APP_ID,
+                    "app_key":          ADZUNA_API_KEY,
+                    "what":             q,
+                    "what_or":          "remote",
+                    "max_days_old":     7,
                     "results_per_page": 15,
-                    "content-type": "application/json",
+                    "content-type":     "application/json",
                 },
                 timeout=15,
             )
             resp.raise_for_status()
             for j in resp.json().get("results", []):
+                sal = ""
+                if j.get("salary_min"):
+                    lo  = int(float(j["salary_min"]))
+                    hi  = int(float(j.get("salary_max") or j["salary_min"]))
+                    sal = f"${lo:,}-${hi:,}/yr" if lo != hi else f"${lo:,}+/yr"
                 results.append({
                     "id":           f"adzuna_{j.get('id', '')}",
                     "title":        j.get("title", ""),
                     "company":      (j.get("company") or {}).get("display_name", ""),
                     "description":  j.get("description", ""),
-                    "salary":       f"${int(float(j['salary_min'])):,}-${int(float(j.get('salary_max') or j.get('salary_min'))):,}/yr" if j.get("salary_min") else "",
+                    "salary":       sal,
                     "remote":       True,
                     "url":          j.get("redirect_url", ""),
                     "source":       "Adzuna",
@@ -521,29 +629,26 @@ def fetch_adzuna() -> list:
 
 
 def fetch_findwork() -> list:
-    """
-    FindWork.dev — رایگان (۱۰۰ req/روز)، بدون API key.
-    مخصوص شغل‌های تکنولوژی و remote.
-    """
-    SEO_TERMS = ["seo", "search engine", "content editor", "wordpress",
-                 "technical seo", "organic", "keyword"]
+    BACKEND_TERMS = [
+        "node", "nodejs", "express", "backend", "back-end",
+        "javascript", "typescript", "api", "rest",
+    ]
     try:
         resp = requests.get(
             "https://findwork.dev/api/jobs/",
-            params={"search": "seo", "remote": "true", "order_by": "-date_posted"},
-            headers={"User-Agent": "Mozilla/5.0 (compatible; SEOJobBot/4.1)"},
+            params={"search": "nodejs backend", "remote": "true", "order_by": "-date_posted"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; BackendJobBot/1.0)"},
             timeout=15,
         )
         if resp.status_code == 403:
-            log.warning("FindWork.dev: access denied (may need API key in future)")
+            log.warning("FindWork.dev: access denied")
             return []
         resp.raise_for_status()
         results = []
         for j in resp.json().get("results", []):
             title = (j.get("role") or "").lower()
-            desc = (j.get("text") or "").lower()[:500]
-            # فیلتر بر اساس SEO terms
-            if not any(t in title or t in desc for t in SEO_TERMS):
+            desc  = (j.get("text") or "").lower()[:500]
+            if not any(t in title or t in desc for t in BACKEND_TERMS):
                 continue
             results.append({
                 "id":           f"findwork_{j.get('id', '')}",
@@ -565,25 +670,21 @@ def fetch_findwork() -> list:
         return []
 
 
-def _normalize_cf_worker_url(url: str) -> str:
-    """اطمینان از اینکه URL ورکر به /jobs ختم بشه"""
-    url = url.rstrip("/")
-    if not url.endswith("/jobs"):
-        url += "/jobs"
-    return url
-
-
 def fetch_cloudflare_worker() -> list:
-    """Cloudflare Worker — Remote OK + We Work Remotely"""
     if not CF_WORKER_URL:
         return []
 
-    worker_url = _normalize_cf_worker_url(CF_WORKER_URL)
+    url = CF_WORKER_URL.rstrip("/")
+    if not url.endswith("/jobs"):
+        url += "/jobs"
 
-    headers = {"User-Agent": "SEOJobBot/4.1"}
+    BACKEND_TERMS = [
+        "node", "nodejs", "express", "backend", "back-end",
+        "javascript", "typescript", "api developer",
+    ]
 
     try:
-        resp = requests.get(worker_url, headers=headers, timeout=20)
+        resp = requests.get(url, headers={"User-Agent": "BackendJobBot/1.0"}, timeout=20)
         if resp.status_code in (401, 404):
             log.error(f"CF Worker: {resp.status_code}")
             return []
@@ -595,6 +696,10 @@ def fetch_cloudflare_worker() -> list:
         jobs = []
         for j in data.get("jobs", []):
             if not j.get("id") or not j.get("title"):
+                continue
+            title = (j.get("title") or "").lower()
+            desc  = (j.get("description") or "").lower()[:300]
+            if not any(t in title or t in desc for t in BACKEND_TERMS):
                 continue
             jobs.append({
                 "id":           str(j.get("id", "")),
@@ -616,11 +721,10 @@ def fetch_cloudflare_worker() -> list:
         return []
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  JSEARCH API (اختیاری) — با محدودیت P3 روزهای زوج
+#  JSEARCH API (اختیاری)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _should_run_p3() -> bool:
-    """P3 queries فقط روزهای زوج اجرا میشن (صرفه‌جویی در سقف رایگان)"""
     return datetime.now(timezone.utc).day % 2 == 0
 
 
@@ -630,13 +734,13 @@ def search_jsearch(query: str) -> list:
 
     url = "https://jsearch.p.rapidapi.com/search"
     headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-key":  RAPIDAPI_KEY,
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
     }
     params = {
-        "query": query,
-        "num_pages": "1",
-        "date_posted": "week",       # ۷ روز — لینکدین دیرتر ایندکس می‌کنه
+        "query":          query,
+        "num_pages":      "1",
+        "date_posted":    "week",
         "work_from_home": "true",
     }
 
@@ -670,17 +774,16 @@ def _normalize_jsearch(j: dict) -> dict:
     if j.get("job_salary_string"):
         salary = j["job_salary_string"]
     elif j.get("job_min_salary"):
-        lo = int(j["job_min_salary"])
-        hi = int(j.get("job_max_salary") or lo)
+        lo  = int(j["job_min_salary"])
+        hi  = int(j.get("job_max_salary") or lo)
         per = {"year": "/yr", "month": "/mo", "hour": "/hr"}.get(
-              (j.get("job_salary_period") or "").lower(), "")
+            (j.get("job_salary_period") or "").lower(), ""
+        )
         salary = f"${lo:,}-${hi:,}{per}" if lo != hi else f"${lo:,}+{per}"
 
-    city = j.get("job_city") or ""
+    city    = j.get("job_city") or ""
     country = j.get("job_country") or ""
-    # ساخت location — filter برای حذف بخش‌های خالی
-    loc_parts = [p for p in (city, country) if p]
-    loc = ", ".join(loc_parts) or "Remote"
+    loc     = ", ".join(p for p in (city, country) if p) or "Remote"
 
     return {
         "id":           j.get("job_id", ""),
@@ -721,7 +824,7 @@ def is_too_old(job: dict) -> bool:
         return False
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TELEGRAM — با link_preview_options جدید
+#  TELEGRAM
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _score_bar(score: int) -> str:
@@ -740,7 +843,7 @@ def format_job(job: dict, score: int, skills: list) -> str:
     loc     = html.escape(job.get("location") or "Remote")
 
     lines = [
-        f"💼 <b>{title}</b>",
+        f"💻 <b>{title}</b>",
         f"🏢 {company}",
         f"📍 {loc}",
     ]
@@ -759,15 +862,11 @@ def format_job(job: dict, score: int, skills: list) -> str:
 
 
 def send_telegram(text: str, reply_markup: dict = None, _retries: int = 3) -> bool:
-    """
-    ارسال پیام به تلگرام — با link_preview_options جدید.
-    اگه Flood Wait بخوره، منتظر میمونه و retry می‌کنه.
-    """
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
+        "chat_id":              TELEGRAM_CHAT_ID,
+        "text":                 text,
+        "parse_mode":           "HTML",
         "link_preview_options": {"is_disabled": True},
     }
     if reply_markup:
@@ -778,17 +877,14 @@ def send_telegram(text: str, reply_markup: dict = None, _retries: int = 3) -> bo
             resp = requests.post(api_url, json=payload, timeout=15)
             if resp.ok:
                 return True
-
-            # Flood Wait handling — تلگرام retry_after رو برمی‌گردونه
             if resp.status_code == 429:
                 try:
                     retry_after = resp.json().get("parameters", {}).get("retry_after", 30)
                 except Exception:
                     retry_after = 30
-                log.warning(f"Telegram Flood Wait — sleeping {retry_after}s (attempt {attempt}/{_retries})")
+                log.warning(f"Telegram Flood Wait — sleeping {retry_after}s")
                 time.sleep(retry_after + 1)
                 continue
-
             log.error(f"Telegram {resp.status_code}: {resp.text[:200]}")
             return False
         except requests.exceptions.Timeout:
@@ -801,33 +897,24 @@ def send_telegram(text: str, reply_markup: dict = None, _retries: int = 3) -> bo
     return False
 
 
-# Telegraph token cache — یکبار ساخته میشه و بقیه استفاده می‌کنن
 _telegraph_token_cache = {"token": TELEGRAPH_TOKEN}
-
-# AI error notification flag — فقط یکبار در هر اجرا پیام خطا ارسال میشه
-_ai_error_notified = {"sent": False}
+_ai_error_notified     = {"sent": False}
 
 
 def _get_telegraph_token() -> str:
-    """
-    گرفتن Telegraph access_token:
-    1. اول از TELEGRAPH_TOKEN (env) استفاده می‌کنه
-    2. اگه نبود، فقط یکبار اکانت می‌سازه و cache می‌کنه
-    """
     if _telegraph_token_cache["token"]:
         return _telegraph_token_cache["token"]
-
     try:
         acc_resp = requests.post(
             "https://api.telegra.ph/createAccount",
-            json={"short_name": "SEOJobBot", "author_name": "SEO Job Bot"},
+            json={"short_name": "BackendJobBot", "author_name": "Backend Job Bot"},
             timeout=10,
         )
         acc_data = acc_resp.json()
         if acc_data.get("ok"):
             token = acc_data["result"]["access_token"]
             _telegraph_token_cache["token"] = token
-            log.info(f"Telegraph account created. Save this as TELEGRAPH_TOKEN: {token}")
+            log.info(f"Telegraph token created: {token}")
             return token
     except Exception as e:
         log.error(f"Telegraph createAccount error: {e}")
@@ -835,63 +922,45 @@ def _get_telegraph_token() -> str:
 
 
 def publish_to_telegraph(title: str, content: str) -> str:
-    """
-    پابلیش متن روی Telegra.ph.
-    از token ذخیره‌شده (TELEGRAPH_TOKEN) استفاده می‌کنه — نه ساخت اکانت جدید هر بار.
-    اگه ناموفق بود، خالی برمی‌گردونه.
-    """
     access_token = _get_telegraph_token()
     if not access_token:
         return ""
-
     try:
-        # ساخت محتوای HTML ساده برای Telegraph
         paragraphs = content.split("\n\n")
         nodes = []
         for para in paragraphs:
-            lines = para.strip().split("\n")
-            for line in lines:
+            for line in para.strip().split("\n"):
                 if line.strip():
                     nodes.append({"tag": "p", "children": [line.strip()]})
 
-        # پابلیش صفحه
         page_resp = requests.post(
             "https://api.telegra.ph/createPage",
             json={
                 "access_token": access_token,
-                "title": title[:256],
-                "content": nodes or [{"tag": "p", "children": ["No content"]}],
-                "author_name": "SEO Job Bot",
+                "title":        title[:256],
+                "content":      nodes or [{"tag": "p", "children": ["No content"]}],
+                "author_name":  "Backend Job Bot",
             },
             timeout=10,
         )
         page_data = page_resp.json()
-        if page_data.get("ok"):
-            return page_data["result"]["url"]
-        return ""
+        return page_data["result"]["url"] if page_data.get("ok") else ""
     except Exception as e:
         log.error(f"Telegraph publish error: {e}")
         return ""
 
 
 def build_job_buttons(job: dict, cover_letter_url: str = "") -> dict:
-    """
-    ساخت دکمه‌های زیر هر آگهی.
-    - Apply همیشه نشون داده میشه
-    - Cover Letter فقط وقتی لینک Telegraph داشته باشیم
-    """
     url = job.get("url", "")
     if not url:
         return {}
     rows = [[{"text": "📝 Apply", "url": url}]]
-
     if cover_letter_url:
         rows.append([{"text": "✍️ Cover Letter", "url": cover_letter_url}])
-
     return {"inline_keyboard": rows}
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  GOOGLE SHEETS (اختیاری) — Batch Append
+#  GOOGLE SHEETS (اختیاری)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_sheets_client():
@@ -929,18 +998,11 @@ def ensure_sheet_headers(client) -> None:
 
 
 def batch_append_to_sheet(client, rows: list) -> None:
-    """
-    ارسال دسته‌ای (Batch) ردیف‌ها به Google Sheets.
-    به جای یک ریکوئست به‌ازای هر آگهی، همه رو یکجا ارسال می‌کنه.
-    """
     if not client or not rows:
         return
     try:
         sheet = client.open_by_key(GSHEET_ID).worksheet(GSHEET_SHEET_NAME)
-        sheet.append_rows(
-            rows,
-            value_input_option="USER_ENTERED",
-        )
+        sheet.append_rows(rows, value_input_option="USER_ENTERED")
         log.info(f"Batch appended {len(rows)} rows to Google Sheets")
     except Exception as e:
         log.error(f"Sheet batch append error: {e}")
@@ -951,22 +1013,22 @@ def batch_append_to_sheet(client, rows: list) -> None:
 
 def main() -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    log.info(f"=== SEO Job Scraper v4.1 started at {now} ===")
+    log.info(f"=== Backend Job Scraper v1.0 started at {now} ===")
 
     seen_jobs = load_seen_jobs()
-    sheets = get_sheets_client()
+    sheets    = get_sheets_client()
     ensure_sheet_headers(sheets)
 
-    raw_jobs = []
+    raw_jobs      = []
     source_counts = {}
 
     # ── منابع رایگان ─────────────────────────────────────────────────────────
     free_sources = [
-        (fetch_remotive, "Remotive"),
-        (fetch_jobicy, "Jobicy"),
-        (fetch_arbeitnow, "Arbeitnow"),
-        (fetch_adzuna, "Adzuna"),
-        (fetch_findwork, "FindWork"),
+        (fetch_remotive,          "Remotive"),
+        (fetch_jobicy,            "Jobicy"),
+        (fetch_arbeitnow,         "Arbeitnow"),
+        (fetch_adzuna,            "Adzuna"),
+        (fetch_findwork,          "FindWork"),
         (fetch_cloudflare_worker, "CF Worker"),
     ]
 
@@ -979,10 +1041,9 @@ def main() -> None:
             log.error(f"{name} failed: {e}\n{traceback.format_exc()}")
             source_counts[name] = 0
 
-    # ── JSearch (اختیاری) — P3 فقط روزهای زوج ────────────────────────────────
+    # ── JSearch (اختیاری) ────────────────────────────────────────────────────
     jsearch_total = 0
     for priority in sorted(JSEARCH_QUERIES.keys()):
-        # P3 فقط روزهای زوج اجرا میشه (صرفه‌جویی در سقف رایگان ۲۰۰ req/ماه)
         if priority == 3 and not _should_run_p3():
             log.info("Skipping P3 JSearch queries (odd day)")
             continue
@@ -997,15 +1058,18 @@ def main() -> None:
     source_counts["JSearch"] = jsearch_total
 
     # ── فیلتر + امتیازدهی ────────────────────────────────────────────────────
-    seen_ids = set()
+    seen_ids   = set()
     title_keys = set()
-    stats = {"blacklisted": 0, "seen": 0, "old": 0, "low_score": 0}
-    qualified = []
+    stats      = {"blacklisted": 0, "seen": 0, "old": 0, "low_score": 0}
+    qualified  = []
 
     for job in raw_jobs:
         try:
-            jid = job.get("id") or job.get("url") or ""
-            title_key = f"{(job.get('title') or '').lower().strip()}|{(job.get('company') or '').lower().strip()}"
+            jid       = job.get("id") or job.get("url") or ""
+            title_key = (
+                f"{(job.get('title') or '').lower().strip()}"
+                f"|{(job.get('company') or '').lower().strip()}"
+            )
 
             if not jid:
                 continue
@@ -1049,12 +1113,12 @@ def main() -> None:
 
     # ── ارسال به تلگرام ──────────────────────────────────────────────────────
     active_sources = {k: v for k, v in source_counts.items() if v > 0}
-    sources_line = " | ".join(f"{k}: {v}" for k, v in active_sources.items())
+    sources_line   = " | ".join(f"{k}: {v}" for k, v in active_sources.items())
 
     if not qualified:
         send_telegram(
-            f"🔍 <b>Daily Report</b>\n📅 {now}\n\n"
-            f"No qualified jobs found.\n\n"
+            f"🔍 <b>Daily Report — Backend Jobs</b>\n📅 {now}\n\n"
+            f"No qualified jobs found today.\n\n"
             f"📌 {sources_line or 'No sources'}\n"
             f"⛔ {stats['blacklisted']} filtered | "
             f"📉 {stats['low_score']} low score | "
@@ -1064,12 +1128,11 @@ def main() -> None:
         save_seen_jobs(seen_jobs)
         return
 
-    # Header message
     ai_status = "🧠 AI: ON" if ai_available() else "🧠 AI: OFF"
     send_telegram(
-        f"🤖 <b>New SEO Jobs</b>\n"
+        f"🚀 <b>New Backend Jobs (Node.js)</b>\n"
         f"📅 {now}\n\n"
-        f"✅ <b>{len(qualified)}</b> jobs (sorted by fit)\n"
+        f"✅ <b>{len(qualified)}</b> jobs found (sorted by fit)\n"
         f"⛔ {stats['blacklisted']} filtered | "
         f"📉 {stats['low_score']} low | "
         f"🔁 {stats['seen']} dupes\n\n"
@@ -1079,52 +1142,43 @@ def main() -> None:
     )
     time.sleep(1.5)
 
-    sent = 0
-    cl_count = 0
-    MAX_COVER_LETTERS = 5  # محدود کردن CL به top 5 برای صرفه‌جویی در API
-    sheet_rows = []  # جمع‌آوری ردیف‌ها برای Batch ارسال به Sheets
+    sent            = 0
+    cl_count        = 0
+    MAX_COVER_LETTERS = 5
+    sheet_rows      = []
 
     for job, score, skills in qualified[:MAX_JOBS_PER_RUN]:
         try:
-            # تولید Cover Letter با AI (اگه فعال باشه) + پابلیش روی Telegraph
-            cl_url = ""
+            cl_url  = ""
             cl_text = ""
             if ai_available() and TELEGRAPH_TOKEN and cl_count < MAX_COVER_LETTERS:
                 cl_text = generate_cover_letter(job, skills)
                 if cl_text:
-                    time.sleep(1)  # delay قبل از Telegraph برای جلوگیری از بن
+                    time.sleep(1)
                     cl_title = f"Cover Letter — {job.get('title', '')[:60]}"
-                    cl_url = publish_to_telegraph(cl_title, cl_text)
+                    cl_url   = publish_to_telegraph(cl_title, cl_text)
                     if cl_url:
                         cl_count += 1
-                    else:
-                        log.warning(f"Telegraph publish failed for: {job.get('title', '')[:40]}")
 
-            # ساخت inline buttons (با یا بدون لینک Cover Letter)
             buttons = build_job_buttons(job, cover_letter_url=cl_url)
+            msg     = format_job(job, score, skills)
 
-            # ارسال آگهی
-            msg = format_job(job, score, skills)
             if send_telegram(msg, reply_markup=buttons if buttons else None):
                 sent += 1
-
-                # جمع‌آوری ردیف برای Batch append به Sheets
                 sheet_rows.append([
-                    job.get("title", ""), job.get("company", ""),
-                    job.get("source", ""), job.get("url", ""),
+                    job.get("title", ""),     job.get("company", ""),
+                    job.get("source", ""),    job.get("url", ""),
                     job.get("posted_at", ""), job.get("salary", ""),
-                    score, job.get("location", ""),
+                    score,                    job.get("location", ""),
                     datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-                    "New", cl_url,  # لینک Cover Letter (Telegraph)
+                    "New", cl_url,
                 ])
 
-            time.sleep(1.5)  # جلوگیری از Flood Wait تلگرام
+            time.sleep(1.5)
         except Exception as e:
             log.error(f"Send error: {e}")
 
-    # ── Batch ارسال به Google Sheets (خارج از حلقه) ───────────────────────────
     batch_append_to_sheet(sheets, sheet_rows)
-
     save_seen_jobs(seen_jobs)
     log.info(f"=== Done. Sent {sent}/{len(qualified)} ===")
 
